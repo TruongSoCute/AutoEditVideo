@@ -45,6 +45,8 @@ Main-process and bounded renderer diagnostics are written as rotating JSON Lines
 
 Analysis progress streams live FFmpeg proxy timestamps and bounded Whisper/Codex activity through typed progress events. The renderer keeps a per-run activity timeline, weighted overall progress, elapsed time and explicit running/stopping/cancelled/complete states. Stop aborts the active subprocess without resetting its last percentage; completed stage checkpoints remain resumable. Proxy and PCM generation write to temporary files and rename atomically, so cancellation cannot promote incomplete media into the cache.
 
+Whisper runs in Electron's Node main process, where `AudioContext` is unavailable. The ASR boundary therefore validates the FFmpeg-generated mono 16 kHz PCM 16-bit WAV, decodes it to normalized `Float32Array` samples, and passes the waveform directly to Transformers.js instead of passing a filesystem path.
+
 ## Render contract
 
 Approval requires a 60–120 second accepted plan. Render verifies source fingerprint and font availability, requires at least 1 GB free space, writes a sibling `.partial.mp4`, validates H.264/AAC, 1080×1920 and duration with FFprobe, then atomically renames. Cancellation and failure remove the partial file.
