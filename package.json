@@ -1,0 +1,82 @@
+{
+  "name": "auto-edit-video",
+  "version": "0.1.0",
+  "private": true,
+  "author": "TruongSoCute",
+  "license": "UNLICENSED",
+  "description": "AI-assisted review-first desktop editor for bilingual headtalk videos.",
+  "type": "module",
+  "main": "dist/main/main/main.js",
+  "scripts": {
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "desktop": "npm run build && electron .",
+    "package:win": "npm run check && electron-builder --win nsis --x64",
+    "package:mac": "npm run check && electron-builder --mac dmg zip --x64 --arm64"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.1.0",
+    "@types/react": "19.1.9",
+    "@types/react-dom": "19.1.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "electron": "42.5.0",
+    "electron-builder": "26.15.3",
+    "typescript": "5.9.2",
+    "vite": "7.3.6",
+    "vitest": "3.2.7"
+  },
+  "overrides": {
+    "sharp": "0.35.0"
+  },
+  "build": {
+    "appId": "com.truongsocute.autoeditvideo",
+    "productName": "AutoEdit Studio",
+    "artifactName": "AutoEditStudio-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets/fonts",
+        "to": "assets/fonts",
+        "filter": ["**/*"]
+      }
+    ],
+    "asarUnpack": [
+      "**/node_modules/onnxruntime-node/**"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AutoEdit Studio"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
+      "category": "public.app-category.video"
+    }
+  }
+}
