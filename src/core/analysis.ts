@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { EditPlan, EditSegment, ProgressEvent, ProjectDocument, SubtitleCue } from '../shared/types.js';
-import { transcribeLocal } from './asr.js';
+import { normalizeTranscriptCues, transcribeLocal } from './asr.js';
 import { runCodexStructured } from './codex.js';
 import { createProxy, extractEvidenceFrames, extractPcm } from './media.js';
 import { editorialPrompt, editorialSchema, subtitlePrompt, subtitleSchema } from './prompts.js';
@@ -66,11 +66,14 @@ export class AnalysisPipeline {
           } else this.emit(project.id, 'asr', 0.08, 'Using cached speech-recognition audio.');
           this.emit(project.id, 'asr', 0.1, 'Starting local Whisper transcription…');
           project.transcript = await transcribeLocal(
-            pcmPath, path.join(cache, 'models'), controller.signal,
+            pcmPath, path.join(cache, 'models'), project.media.duration, controller.signal,
             (ratio, message) => this.emit(project.id, 'asr', 0.1 + ratio * 0.85, message),
           );
-          validateTranscript(project.transcript, project.media.duration);
-        } else this.emit(project.id, 'asr', 0.95, `Using ${project.transcript.length} cached transcript cues.`);
+        } else {
+          project.transcript = normalizeTranscriptCues(project.transcript, project.media.duration);
+          this.emit(project.id, 'asr', 0.95, `Using ${project.transcript.length} normalized transcript cues from cache.`);
+        }
+        validateTranscript(project.transcript, project.media.duration);
       });
 
       let editorial!: EditorialResult;

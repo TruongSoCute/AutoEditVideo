@@ -9,9 +9,12 @@ export function planDuration(plan: EditPlan): number {
 export function validateTranscript(cues: TranscriptCue[], sourceDuration: number): void {
   let previousEnd = 0;
   for (const cue of cues) {
-    if (!cue.id || cue.start < 0 || cue.end <= cue.start || cue.end > sourceDuration + 0.05) {
-      throw new ValidationError(`Invalid transcript cue ${cue.id || '<missing>'}.`);
-    }
+    const id = cue.id || '<missing>';
+    if (!cue.id) throw new ValidationError('Transcript cue is missing an id.');
+    if (!Number.isFinite(cue.start) || !Number.isFinite(cue.end)) throw new ValidationError(`Transcript cue ${id} has a non-finite timestamp.`);
+    if (cue.start < 0) throw new ValidationError(`Transcript cue ${id} starts before the source at ${cue.start.toFixed(3)}s.`);
+    if (cue.end <= cue.start) throw new ValidationError(`Transcript cue ${id} ends at ${cue.end.toFixed(3)}s, before or equal to its ${cue.start.toFixed(3)}s start.`);
+    if (cue.end > sourceDuration + 0.05) throw new ValidationError(`Transcript cue ${id} ends at ${cue.end.toFixed(3)}s, beyond the ${sourceDuration.toFixed(3)}s source duration.`);
     if (cue.start < previousEnd - 0.05) throw new ValidationError(`Transcript cues overlap at ${cue.id}.`);
     previousEnd = cue.end;
   }

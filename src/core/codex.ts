@@ -1,10 +1,9 @@
-import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import type { ModelItem } from '../shared/types.js';
-import { requireSuccessful, runProcess } from './process.js';
+import { requireSuccessful, runProcess, spawnHidden } from './process.js';
 
 export interface CodexRunOptions<T> {
   prompt: string;
@@ -60,7 +59,7 @@ function parseModelList(value: unknown): ModelItem[] {
 async function requestCodexModels(signal?: AbortSignal): Promise<ModelItem[]> {
   const invocation = await codexInvocation();
   return await new Promise<ModelItem[]>((resolve, reject) => {
-    const child = spawn(invocation.command, [...invocation.prefix, 'app-server', '--listen', 'stdio://'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: invocation.env });
+    const child = spawnHidden(invocation.command, [...invocation.prefix, 'app-server', '--listen', 'stdio://'], { env: invocation.env });
     const lines = readline.createInterface({ input: child.stdout });
     let settled = false;
     let stderr = '';

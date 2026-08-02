@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planDuration, validateEditPlan, ValidationError } from '../src/core/validators';
+import { planDuration, validateEditPlan, validateTranscript, ValidationError } from '../src/core/validators';
 import { applyOperations } from '../src/core/review';
 import { media, plan } from './fixtures';
 
@@ -18,5 +18,9 @@ describe('edit plan validation', () => {
   });
   it('validates the whole plan after a trim', () => {
     expect(() => applyOperations(plan, [{ type: 'update-trim', segmentId: 's2', sourceStart: 30, sourceEnd: 60 }], media)).toThrow(/chronological/);
+  });
+  it('explains the exact transcript timestamp that is outside the source', () => {
+    const cues = [{ id: 'cue-35', start: 356.54, end: 359.96, rawAsr: 'stage of life', english: 'stage of life', vietnamese: '', provenance: 'asr' as const }];
+    expect(() => validateTranscript(cues, 359.343333)).toThrow(/cue-35 ends at 359\.960s, beyond the 359\.343s source duration/);
   });
 });

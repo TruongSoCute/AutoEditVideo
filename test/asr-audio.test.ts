@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePcm16Wav } from '../src/core/asr';
+import { normalizeTranscriptCues, parsePcm16Wav } from '../src/core/asr';
 
 function pcmWav(samples: number[], options: { channels?: number; sampleRate?: number; bits?: number } = {}): Buffer {
   const channels = options.channels ?? 1;
@@ -32,5 +32,13 @@ describe('Whisper Node audio input', () => {
   it('honours cancellation before allocating the transcription run', () => {
     const controller = new AbortController(); controller.abort();
     expect(() => parsePcm16Wav(pcmWav([0, 1]), controller.signal)).toThrowError(DOMException);
+  });
+
+  it('clamps Whisper tail padding and overlap to the source timeline', () => {
+    const cues = normalizeTranscriptCues([
+      { id: 'cue-34', start: 349.56, end: 356.54, rawAsr: 'thoughts', english: 'thoughts', vietnamese: '', provenance: 'asr' },
+      { id: 'cue-35', start: 356.5, end: 359.96, rawAsr: 'stage of life', english: 'stage of life', vietnamese: '', provenance: 'asr' },
+    ], 359.343333);
+    expect(cues[1]).toMatchObject({ id: 'cue-35', start: 356.54, end: 359.343333 });
   });
 });

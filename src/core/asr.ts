@@ -4,7 +4,7 @@ import type { TranscriptCue } from '../shared/types.js';
 interface WhisperChunk { timestamp: [number, number | null]; text: string }
 interface WhisperOutput { text?: string; chunks?: WhisperChunk[] }
 
-export async function transcribeLocal(audioPath: string, cacheDir: string, signal?: AbortSignal, onProgress?: (ratio: number, message: string) => void): Promise<TranscriptCue[]> {
+export async function transcribeLocal(audioPath: string, cacheDir: string, sourceDuration: number, signal?: AbortSignal, onProgress?: (ratio: number, message: string) => void): Promise<TranscriptCue[]> {
   if (signal?.aborted) throw new DOMException('Operation cancelled', 'AbortError');
   const transformers = await import('@huggingface/transformers') as unknown as {
     env: { cacheDir: string; allowRemoteModels: boolean };
@@ -34,8 +34,22 @@ export async function transcribeLocal(audioPath: string, cacheDir: string, signa
     if (!text || !Number.isFinite(start) || !Number.isFinite(end)) return [];
     return [{ id: `cue-${index + 1}`, start, end, rawAsr: text, english: text, vietnamese: '', provenance: 'asr' as const }];
   });
-  onProgress?.(0.95, `Whisper produced ${cues.length} timestamped cues.`);
-  return cues;
+  const normalized = normalizeTranscriptCues(cues, sourceDuration);
+  onProgress?.(0.95, `Whisper produced ${normalized.length} timestamped cues.`);
+  return normalized;
+}
+
+export function normalizeTranscriptCues(cues: TranscriptCue[], sourceDuration: number): TranscriptCue[] {
+  if (!Number.isFinite(sourceDuration) || sourceDuration <= 0) throw new Error('Cannot normalize transcript without a valid source duration.');
+  let previousEnd = 0;
+  return cues.flatMap(cue => {
+    if (!Number.isFinite(cue.start) || !Number.isFinite(cue.end)) return [];
+    const start = Math.max(previousEnd, Math.max(0, Math.min(sourceDuration, cue.start)));
+    const end = Math.max(0, Math.min(sourceDuration, cue.end));
+    if (end <= start) return [];
+    previousEnd = end;
+    return [{ ...cue, start, end }];
+  });
 }
 
 export function parsePcm16Wav(buffer: Uint8Array, signal?: AbortSignal): Float32Array {

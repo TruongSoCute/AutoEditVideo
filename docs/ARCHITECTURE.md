@@ -47,6 +47,8 @@ Analysis progress streams live FFmpeg proxy timestamps and bounded Whisper/Codex
 
 Whisper runs in Electron's Node main process, where `AudioContext` is unavailable. The ASR boundary therefore validates the FFmpeg-generated mono 16 kHz PCM 16-bit WAV, decodes it to normalized `Float32Array` samples, and passes the waveform directly to Transformers.js instead of passing a filesystem path.
 
+Whisper timestamps are normalized against the probed source duration before validation: tail padding is clamped, small overlaps are trimmed, and empty out-of-range cues are discarded. Cached transcripts pass through the same normalization on resume. All external tools are launched through one hidden, pipe-only subprocess boundary with the Windows shell disabled so FFmpeg, FFprobe and Codex do not flash console windows.
+
 ## Render contract
 
 Approval requires a 60–120 second accepted plan. Render verifies source fingerprint and font availability, requires at least 1 GB free space, writes a sibling `.partial.mp4`, validates H.264/AAC, 1080×1920 and duration with FFprobe, then atomically renames. Cancellation and failure remove the partial file.
