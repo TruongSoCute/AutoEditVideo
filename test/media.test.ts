@@ -3,7 +3,7 @@ import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { fingerprintSource, parseProbe, visualFilter } from '../src/core/media';
+import { createFfmpegProgressParser, fingerprintSource, parseProbe, visualFilter } from '../src/core/media';
 
 const temporary: string[] = [];
 afterEach(async () => { await Promise.all(temporary.splice(0).map(item => rm(item, { recursive: true, force: true }))); });
@@ -25,5 +25,12 @@ describe('media inspection', () => {
     expect(first.fingerprint).toMatch(/^[a-f0-9]{64}$/);
     await utimes(file, new Date(), new Date(Date.now() + 10_000));
     expect((await fingerprintSource(file)).fingerprint).toBe(first.fingerprint);
+  });
+  it('parses streaming FFmpeg progress across split chunks', () => {
+    const samples: number[] = [];
+    const parse = createFfmpegProgressParser(10, ratio => samples.push(ratio));
+    parse('progress=continue\nout_time_us=2500');
+    parse('000\nframe=30\nout_time_ms=9000000\n');
+    expect(samples).toEqual([0.25, 0.9]);
   });
 });

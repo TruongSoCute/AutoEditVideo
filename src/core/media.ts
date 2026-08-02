@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { MediaInfo, SourceReference } from '../shared/types.js';
 import { requireSuccessful } from './process.js';
@@ -83,19 +83,50 @@ export async function createProxy(args: {
   ffmpegPath: string; source: string; target: string; media: MediaInfo; signal?: AbortSignal; onProgress?: (ratio: number) => void;
 }): Promise<void> {
   await mkdir(path.dirname(args.target), { recursive: true });
-  const result = await requireSuccessful(args.ffmpegPath, [
-    '-hide_banner', '-y', '-noautorotate', '-i', args.source, '-map', '0:v:0', '-map', '0:a:0?',
-    '-vf', visualFilter(args.media, 720, 1280), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-metadata:s:v:0', 'rotate=0', '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', args.target,
-  ], { signal: args.signal });
-  for (const match of result.stdout.matchAll(/out_time_ms=(\d+)/g)) args.onProgress?.(Math.min(1, Number(match[1]) / 1_000_000 / args.media.duration));
+  const partial = `${args.target}.partial.mp4`;
+  await rm(partial, { force: true });
+  const parseProgress = createFfmpegProgressParser(args.media.duration, ratio => args.onProgress?.(ratio));
+  try {
+    await requireSuccessful(args.ffmpegPath, [
+      '-hide_banner', '-y', '-noautorotate', '-i', args.source, '-map', '0:v:0', '-map', '0:a:0?',
+      '-vf', visualFilter(args.media, 720, 1280), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-metadata:s:v:0', 'rotate=0', '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', partial,
+    ], { signal: args.signal, onOutput: parseProgress });
+    await rename(partial, args.target);
+  } catch (error) {
+    await rm(partial, { force: true });
+    throw error;
+  }
+  args.onProgress?.(1);
+}
+
+export function createFfmpegProgressParser(duration: number, onProgress: (ratio: number) => void): (chunk: string) => void {
+  let buffer = '';
+  return chunk => {
+    buffer += chunk;
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      const match = /^out_time_(?:ms|us)=(\d+)$/.exec(line.trim());
+      if (match && duration > 0) onProgress(Math.min(1, Number(match[1]) / 1_000_000 / duration));
+    }
+  };
 }
 
 export async function extractPcm(ffmpegPath: string, source: string, target: string, signal?: AbortSignal): Promise<void> {
-  await requireSuccessful(ffmpegPath, ['-hide_banner', '-y', '-i', source, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', target], { signal });
+  await mkdir(path.dirname(target), { recursive: true });
+  const partial = `${target}.partial.wav`;
+  await rm(partial, { force: true });
+  try {
+    await requireSuccessful(ffmpegPath, ['-hide_banner', '-y', '-i', source, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', partial], { signal });
+    await rename(partial, target);
+  } catch (error) {
+    await rm(partial, { force: true });
+    throw error;
+  }
 }
 
-export async function extractEvidenceFrames(ffmpegPath: string, proxyPath: string, targetDir: string, duration: number, signal?: AbortSignal): Promise<string[]> {
+export async function extractEvidenceFrames(ffmpegPath: string, proxyPath: string, targetDir: string, duration: number, signal?: AbortSignal, onProgress?: (ratio: number) => void): Promise<string[]> {
   await mkdir(targetDir, { recursive: true });
   const timestamps = [0.12, 0.32, 0.52, 0.72, 0.9].map(ratio => Math.max(0, duration * ratio));
   const paths: string[] = [];
@@ -103,6 +134,7 @@ export async function extractEvidenceFrames(ffmpegPath: string, proxyPath: strin
     const target = path.join(targetDir, `evidence-${i + 1}.jpg`);
     await requireSuccessful(ffmpegPath, ['-hide_banner', '-y', '-ss', timestamps[i].toFixed(3), '-i', proxyPath, '-frames:v', '1', '-q:v', '3', target], { signal });
     paths.push(target);
+    onProgress?.((i + 1) / timestamps.length);
   }
   return paths;
 }

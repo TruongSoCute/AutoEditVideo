@@ -150,6 +150,8 @@ export interface ProgressEvent {
   projectId: string;
   stage: StageName;
   progress: number;
+  overallProgress?: number;
+  state?: StageState;
   message: string;
 }
 

@@ -8,4 +8,11 @@ describe('renderer workflow contract smoke', () => {
     await api.createProject(); await api.startAnalysis('p1'); await api.acceptProposal('p1'); await api.approve('p1'); await api.render({ projectId: 'p1' });
     expect(calls).toEqual(['createProject', 'startAnalysis', 'acceptProposal', 'approve', 'render']);
   });
+
+  it('exposes stop and checkpoint resume controls', async () => {
+    const calls: string[] = [];
+    const api = new Proxy({}, { get: (_target, key) => async () => { calls.push(String(key)); return {}; } }) as AutoEditApi;
+    await api.cancelAnalysis('p1'); await api.resumeAnalysis('p1');
+    expect(calls).toEqual(['cancelAnalysis', 'resumeAnalysis']);
+  });
 });
