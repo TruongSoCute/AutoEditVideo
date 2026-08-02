@@ -1,8 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron';
-import { access } from 'node:fs/promises';
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
+import { createReadStream } from 'node:fs';
+import { access, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Readable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import { AnalysisPipeline } from '../core/analysis.js';
+import { parseByteRange, RangeNotSatisfiableError } from '../core/byte-range.js';
 import { codexVersion, listCodexModels, runCodexStructured } from '../core/codex.js';
 import { requireSuccessful } from '../core/process.js';
 import { operationsPrompt, operationsSchema } from '../core/prompts.js';
@@ -19,6 +22,7 @@ let store: ProjectStore;
 let analysis: AnalysisPipeline;
 let renderer: RenderPipeline;
 let logger: AppLogger;
+const rangeLogState = new Map<string, { start: number; at: number }>();
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 
@@ -155,8 +159,26 @@ app.whenReady().then(async () => {
       const kind = match[2] as 'source' | 'proxy';
       const mediaPath = kind === 'proxy' ? project.proxyPath : project.source.path;
       if (!mediaPath || !(await exists(mediaPath))) { logger.warn('preview', 'Media route target is unavailable', { projectId: project.id, kind }); return new Response('Not found', { status: 404 }); }
-      logger.info('preview', 'Serving media', { projectId: project.id, kind, file: path.basename(mediaPath), range: request.headers.get('range') ?? '' });
-      return await net.fetch(pathToFileURL(mediaPath).toString(), { headers: request.headers });
+      const fileInfo = await stat(mediaPath);
+      const rangeHeader = request.headers.get('range');
+      let range;
+      try { range = parseByteRange(rangeHeader, fileInfo.size); }
+      catch (error) {
+        if (!(error instanceof RangeNotSatisfiableError)) throw error;
+        logger.warn('preview', 'Rejected media range', { projectId: project.id, kind, range: rangeHeader ?? '', size: fileInfo.size });
+        return new Response(null, { status: 416, headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes */${fileInfo.size}` } });
+      }
+      const start = range?.start ?? 0;
+      const end = range?.end ?? fileInfo.size - 1;
+      const headers = new Headers({
+        'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', 'Content-Length': String(end - start + 1),
+        'Content-Type': mediaContentType(mediaPath),
+      });
+      if (range) headers.set('Content-Range', `bytes ${start}-${end}/${fileInfo.size}`);
+      logMediaRange(project.id, kind, path.basename(mediaPath), rangeHeader, start, end, fileInfo.size);
+      if (request.method === 'HEAD') return new Response(null, { status: range ? 206 : 200, headers });
+      const body = Readable.toWeb(createReadStream(mediaPath, { start, end })) as unknown as BodyInit;
+      return new Response(body, { status: range ? 206 : 200, headers });
     } catch (error) { logger.error('preview', 'Media route failed', { message: error instanceof Error ? error.message : String(error) }); return new Response('Not found', { status: 404 }); }
   });
   registerHandlers(); await createWindow();
@@ -167,3 +189,22 @@ process.on('uncaughtExceptionMonitor', error => logger?.error('process', 'Uncaug
 process.on('unhandledRejection', reason => logger?.error('process', 'Unhandled rejection', { message: reason instanceof Error ? reason.message : String(reason) }));
 
 async function exists(filePath: string): Promise<boolean> { try { await access(filePath); return true; } catch { return false; } }
+
+function mediaContentType(filePath: string): string {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.mov': return 'video/quicktime';
+    case '.mkv': return 'video/x-matroska';
+    case '.m4v': return 'video/x-m4v';
+    default: return 'video/mp4';
+  }
+}
+
+function logMediaRange(projectId: string, kind: 'source' | 'proxy', file: string, requested: string | null, start: number, end: number, size: number): void {
+  const key = `${projectId}:${kind}`;
+  const previous = rangeLogState.get(key);
+  const now = Date.now();
+  if (!previous || start === 0 || Math.abs(start - previous.start) >= 2 * 1024 * 1024 || now - previous.at >= 10_000) {
+    logger.info('preview', 'Serving media range', { projectId, kind, file, requested: requested ?? 'full', start, end, size });
+    rangeLogState.set(key, { start, at: now });
+  }
+}
