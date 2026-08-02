@@ -38,6 +38,10 @@ Projects are stored atomically in Electron `userData/projects/<uuid>/project.jso
 
 `ProjectDocument` is main-process-only. `PublicProject` strips source/cache/export, FFmpeg and font paths before crossing IPC. All project identifiers are UUID-validated before they become filesystem components.
 
+Preview media crosses the renderer boundary only through the opaque `media://project/<uuid>/source|proxy` protocol. The source route makes supported codecs playable immediately after Import and preserves HTTP Range semantics for seeking. Once analysis creates an autorotated SDR proxy, the renderer switches to that route. Playback failures are recoverable in the UI and recommend proxy generation.
+
+Main-process and bounded renderer diagnostics are written as rotating JSON Lines to `userData/logs/app.log`. Preview logs contain project id, route kind, basename, Range request and media element state, but never expose raw filesystem paths to the renderer.
+
 ## Render contract
 
 Approval requires a 60–120 second accepted plan. Render verifies source fingerprint and font availability, requires at least 1 GB free space, writes a sibling `.partial.mp4`, validates H.264/AAC, 1080×1920 and duration with FFprobe, then atomically renames. Cancellation and failure remove the partial file.

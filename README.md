@@ -32,6 +32,8 @@ The source file is referenced in place and never copied into the project. Whispe
 
 Project documents and resumable checkpoints live under Electron's per-user `userData/projects` directory. The renderer receives only sanitized metadata and an opaque `media://` proxy URL.
 
+Supported source codecs preview immediately after Import through an opaque media route. Use **9:16 crop** to inspect final framing or **Fit source** to inspect the full recorded frame. HEVC or another codec unsupported by Electron shows a recovery action that creates the standard H.264 SDR proxy. Runtime diagnostics are recorded in `userData/logs/app.log`.
+
 ## Fonts
 
 Be Vietnam Pro SemiBold and its OFL license are bundled in `assets/fonts`. Satoshi is not redistributed: select a legally obtained Satoshi Bold `.ttf` or `.otf` in the system check panel. Render stops if it is missing.

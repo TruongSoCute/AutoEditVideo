@@ -132,6 +132,7 @@ export type PublicProject = Omit<ProjectDocument, 'source' | 'proxyPath' | 'outp
   source: Omit<SourceReference, 'path'>;
   settings: Pick<ProjectSettings, 'model' | 'reasoning'>;
   sourceToken: string;
+  previewUrl: string;
   proxyUrl?: string;
   outputAvailable: boolean;
 };
@@ -153,3 +154,10 @@ export interface ProgressEvent {
 }
 
 export interface RenderRequest { projectId: string }
+
+export interface ClientLogEvent {
+  level: 'info' | 'warn' | 'error';
+  scope: 'preview' | 'renderer';
+  message: string;
+  details?: Record<string, string | number | boolean | null>;
+}

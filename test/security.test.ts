@@ -15,6 +15,8 @@ describe('renderer boundary', () => {
     };
     const publicData = new ProjectStore('C:\\user-data').public(project);
     const serialized = JSON.stringify(publicData);
-    expect(serialized).not.toContain('C:\\'); expect(publicData.outputAvailable).toBe(true); expect(publicData.proxyUrl).toBe(`media://project/${project.id}/proxy`);
+    expect(serialized).not.toContain('C:\\'); expect(publicData.outputAvailable).toBe(true);
+    expect(publicData.previewUrl).toBe(`media://project/${project.id}/source`);
+    expect(publicData.proxyUrl).toBe(`media://project/${project.id}/proxy`);
   });
 });

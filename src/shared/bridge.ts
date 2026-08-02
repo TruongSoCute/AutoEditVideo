@@ -1,4 +1,4 @@
-import type { DependencyStatus, ModelItem, ProgressEvent, PublicProject, RenderRequest, ReviewOperation } from './types.js';
+import type { ClientLogEvent, DependencyStatus, ModelItem, ProgressEvent, PublicProject, RenderRequest, ReviewOperation } from './types.js';
 
 export const IPC = {
   systemStatus: 'system:status', modelList: 'model:list', projectCreate: 'project:create',
@@ -6,7 +6,7 @@ export const IPC = {
   analysisCancel: 'analysis:cancel', analysisResume: 'analysis:resume', reviewUpdate: 'review:update',
   reviewAgent: 'review:agent', reviewAccept: 'review:accept', reviewReject: 'review:reject',
   reviewApprove: 'review:approve', renderStart: 'render:start', renderCancel: 'render:cancel',
-  renderReveal: 'render:reveal', settingsFont: 'settings:font', settingsModel: 'settings:model', progress: 'pipeline:progress',
+  renderReveal: 'render:reveal', settingsFont: 'settings:font', settingsModel: 'settings:model', clientLog: 'system:client-log', progress: 'pipeline:progress',
 } as const;
 
 export interface AutoEditApi {
@@ -28,5 +28,6 @@ export interface AutoEditApi {
   render(request: RenderRequest): Promise<PublicProject>;
   cancelRender(projectId: string): Promise<void>;
   reveal(projectId: string): Promise<void>;
+  log(event: ClientLogEvent): void;
   onProgress(callback: (event: ProgressEvent) => void): () => void;
 }

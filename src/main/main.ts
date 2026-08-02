@@ -10,13 +10,15 @@ import { ProjectStore } from '../core/project-store.js';
 import { applyOperations, proposal } from '../core/review.js';
 import { RenderPipeline } from '../core/render.js';
 import { IPC } from '../shared/bridge.js';
-import type { DependencyStatus, ProgressEvent, ProjectDocument, RenderRequest, ReviewOperation } from '../shared/types.js';
+import type { ClientLogEvent, DependencyStatus, ProgressEvent, ProjectDocument, RenderRequest, ReviewOperation } from '../shared/types.js';
+import { AppLogger } from './logger.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
 let store: ProjectStore;
 let analysis: AnalysisPipeline;
 let renderer: RenderPipeline;
+let logger: AppLogger;
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 
@@ -25,6 +27,7 @@ function bundledFontDir(): string {
 }
 
 function sendProgress(event: ProgressEvent): void {
+  if (event.progress === 0 || event.progress === 1) logger.info('pipeline', event.message, { projectId: event.projectId, stage: event.stage, progress: event.progress });
   mainWindow?.webContents.send(IPC.progress, event);
 }
 
@@ -56,7 +59,9 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.projectCreate, async () => {
     const choice = await dialog.showOpenDialog(mainWindow!, { title: 'Import headtalk video', properties: ['openFile'], filters: [{ name: 'Video', extensions: ['mov', 'mp4', 'm4v', 'mkv'] }] });
     if (choice.canceled || !choice.filePaths[0]) return null;
-    return store.public(await store.create(choice.filePaths[0]));
+    const project = await store.create(choice.filePaths[0]);
+    logger.info('project', 'Imported source', { projectId: project.id, file: project.source.displayName, codec: project.media.videoCodec, hdr: project.media.hdr, rotation: project.media.rotation });
+    return store.public(project);
   });
   ipcMain.handle(IPC.projectOpen, async () => {
     const choice = await dialog.showOpenDialog(mainWindow!, { title: 'Open AutoEdit project', defaultPath: store.root, properties: ['openFile'], filters: [{ name: 'AutoEdit project', extensions: ['json'] }] });
@@ -124,6 +129,10 @@ function registerHandlers(): void {
   });
   ipcMain.handle(IPC.renderCancel, (_event, id: string) => renderer.cancel(id));
   ipcMain.handle(IPC.renderReveal, async (_event, id: string) => { const project = await loadProject(id); if (project.outputPath) shell.showItemInFolder(project.outputPath); });
+  ipcMain.on(IPC.clientLog, (_event, payload: ClientLogEvent) => {
+    if (!payload || !['info', 'warn', 'error'].includes(payload.level) || !['preview', 'renderer'].includes(payload.scope)) return;
+    logger[payload.level](payload.scope, payload.message, payload.details);
+  });
 }
 
 async function createWindow(): Promise<void> {
@@ -133,18 +142,28 @@ async function createWindow(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  logger = new AppLogger(app.getPath('userData'));
+  logger.info('app', 'AutoEdit Studio started', { version: app.getVersion(), packaged: app.isPackaged, platform: process.platform });
   store = new ProjectStore(app.getPath('userData'));
   analysis = new AnalysisPipeline(store, event => sendProgress(event));
   renderer = new RenderPipeline(event => sendProgress(event), bundledFontDir());
   protocol.handle('media', async request => {
-    const match = new URL(request.url).pathname.match(/^\/([^/]+)\/proxy$/);
+    const match = new URL(request.url).pathname.match(/^\/([^/]+)\/(source|proxy)$/);
     if (!match) return new Response('Not found', { status: 404 });
-    try { const project = await store.load(match[1]); if (!project.proxyPath) return new Response('Not found', { status: 404 }); return await net.fetch(pathToFileURL(project.proxyPath).toString()); }
-    catch { return new Response('Not found', { status: 404 }); }
+    try {
+      const project = await store.load(match[1]);
+      const kind = match[2] as 'source' | 'proxy';
+      const mediaPath = kind === 'proxy' ? project.proxyPath : project.source.path;
+      if (!mediaPath || !(await exists(mediaPath))) { logger.warn('preview', 'Media route target is unavailable', { projectId: project.id, kind }); return new Response('Not found', { status: 404 }); }
+      logger.info('preview', 'Serving media', { projectId: project.id, kind, file: path.basename(mediaPath), range: request.headers.get('range') ?? '' });
+      return await net.fetch(pathToFileURL(mediaPath).toString(), { headers: request.headers });
+    } catch (error) { logger.error('preview', 'Media route failed', { message: error instanceof Error ? error.message : String(error) }); return new Response('Not found', { status: 404 }); }
   });
   registerHandlers(); await createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+process.on('uncaughtExceptionMonitor', error => logger?.error('process', 'Uncaught exception', { name: error.name, message: error.message, stack: error.stack?.slice(0, 1200) }));
+process.on('unhandledRejection', reason => logger?.error('process', 'Unhandled rejection', { message: reason instanceof Error ? reason.message : String(reason) }));
 
 async function exists(filePath: string): Promise<boolean> { try { await access(filePath); return true; } catch { return false; } }

@@ -65,7 +65,8 @@ export class ProjectStore {
     const { path: _path, ...source } = project.source;
     const { proxyPath: _proxy, outputPath, settings, ...safe } = project;
     return { ...safe, source, settings: { model: settings.model, reasoning: settings.reasoning }, sourceToken: project.id,
-      proxyUrl: project.proxyPath ? `media://project/${project.id}/proxy` : undefined, outputAvailable: Boolean(outputPath) };
+      previewUrl: `media://project/${project.id}/source`, proxyUrl: project.proxyPath ? `media://project/${project.id}/proxy` : undefined,
+      outputAvailable: Boolean(outputPath) };
   }
 
   finalize(project: ProjectDocument, plan: EditPlan): FinalSnapshot {

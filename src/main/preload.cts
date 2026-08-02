@@ -5,7 +5,7 @@ const IPC = {
   projectRelink: 'project:relink', settingsFont: 'settings:font', settingsModel: 'settings:model', analysisStart: 'analysis:start', analysisCancel: 'analysis:cancel',
   analysisResume: 'analysis:resume', reviewUpdate: 'review:update', reviewAgent: 'review:agent', reviewAccept: 'review:accept',
   reviewReject: 'review:reject', reviewApprove: 'review:approve', renderStart: 'render:start', renderCancel: 'render:cancel',
-  renderReveal: 'render:reveal', progress: 'pipeline:progress',
+  renderReveal: 'render:reveal', clientLog: 'system:client-log', progress: 'pipeline:progress',
 } as const;
 
 contextBridge.exposeInMainWorld('autoEdit', {
@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('autoEdit', {
   render: (request: unknown) => ipcRenderer.invoke(IPC.renderStart, request),
   cancelRender: (projectId: string) => ipcRenderer.invoke(IPC.renderCancel, projectId),
   reveal: (projectId: string) => ipcRenderer.invoke(IPC.renderReveal, projectId),
+  log: (event: unknown) => ipcRenderer.send(IPC.clientLog, event),
   onProgress: (callback: (event: unknown) => void) => {
     const listener = (_event: unknown, payload: unknown) => callback(payload);
     ipcRenderer.on(IPC.progress, listener);
