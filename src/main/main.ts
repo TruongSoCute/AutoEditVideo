@@ -49,9 +49,14 @@ async function systemStatus(projectId?: string): Promise<DependencyStatus> {
   const ffmpegPath = project?.settings.ffmpegPath ?? 'ffmpeg';
   const ffprobePath = project?.settings.ffprobePath ?? 'ffprobe';
   const [ffmpeg, ffprobe] = await Promise.all([commandStatus(ffmpegPath), commandStatus(ffprobePath)]);
-  let codex: DependencyStatus['codex'];
-  try { codex = { available: true, authenticated: (await listCodexModels()).length > 0, version: await codexVersion() }; }
-  catch (error) { codex = { available: false, authenticated: false, error: error instanceof Error ? error.message : String(error) }; }
+  const [versionResult, catalogResult] = await Promise.allSettled([codexVersion(), listCodexModels()]);
+  const version = versionResult.status === 'fulfilled' ? versionResult.value : undefined;
+  const authenticated = catalogResult.status === 'fulfilled' && catalogResult.value.length > 0;
+  const available = versionResult.status === 'fulfilled' || catalogResult.status === 'fulfilled';
+  const failure = catalogResult.status === 'rejected' ? catalogResult.reason : versionResult.status === 'rejected' ? versionResult.reason : undefined;
+  const error = failure instanceof Error ? failure.message : failure ? String(failure) : undefined;
+  if (error) logger.warn('codex', 'Codex system check incomplete', { available, authenticated, message: error });
+  const codex: DependencyStatus['codex'] = { available, authenticated, version, ...(error ? { error } : {}) };
   const beVietnamPro = await exists(path.join(bundledFontDir(), 'BeVietnamPro-SemiBold.ttf'));
   const satoshi = Boolean(project?.settings.satoshiFontPath && await exists(project.settings.satoshiFontPath));
   return { codex, ffmpeg, ffprobe, fonts: { beVietnamPro, satoshi } };

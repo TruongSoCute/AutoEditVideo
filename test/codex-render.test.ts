@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyCodexError } from '../src/core/codex';
+import { classifyCodexError, codexProcessEnvironment } from '../src/core/codex';
 import { buildFilterGraph, createAss, mapSourceToOutput } from '../src/core/render';
 import { media, plan } from './fixtures';
 
@@ -10,6 +10,10 @@ describe('Codex boundary', () => {
     expect(classifyCodexError('output JSON schema mismatch')).toMatch(/schema/i);
   });
   it('redacts filesystem paths from diagnostics', () => { expect(classifyCodexError('failed C:\\Users\\person\\secret.txt')).not.toContain('secret.txt'); });
+  it('runs npm Codex through Electron bundled Node mode without relying on PATH', () => {
+    expect(codexProcessEnvironment(true, { PATH: '' })).toMatchObject({ PATH: '', NO_COLOR: '1', ELECTRON_RUN_AS_NODE: '1' });
+    expect(codexProcessEnvironment(false, { PATH: '' }).ELECTRON_RUN_AS_NODE).toBeUndefined();
+  });
 });
 
 describe('render planning', () => {

@@ -1,0 +1,23 @@
+.agent-menu footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-menu footer span {
+  flex: 1;
+}
+
+.agent-menu footer button,
+.codex-retry {
+  padding: 4px 7px;
+  border: 1px solid #514a35;
+  background: #252218;
+  color: #d4bf7b;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.codex-retry {
+  margin: 0 0 8px 24px;
+}

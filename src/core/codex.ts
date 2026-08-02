@@ -16,17 +16,31 @@ export interface CodexRunOptions<T> {
   onProgress?: (message: string) => void;
 }
 
-async function codexInvocation(): Promise<{ command: string; prefix: string[] }> {
+interface CodexInvocation { command: string; prefix: string[]; env: NodeJS.ProcessEnv }
+const MODEL_CACHE_TTL_MS = 30_000;
+let modelCache: { expiresAt: number; models: ModelItem[] } | undefined;
+let modelRequest: Promise<ModelItem[]> | undefined;
+
+export function codexProcessEnvironment(electronRuntime: boolean, source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...source, NO_COLOR: '1' };
+  if (electronRuntime) env.ELECTRON_RUN_AS_NODE = '1';
+  return env;
+}
+
+async function codexInvocation(): Promise<CodexInvocation> {
   if (process.platform === 'win32' && process.env.APPDATA) {
     const entry = path.join(process.env.APPDATA, 'npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
-    try { await readFile(entry); return { command: process.versions.electron ? 'node' : process.execPath, prefix: [entry] }; } catch { /* use a native executable */ }
+    try {
+      await readFile(entry);
+      return { command: process.execPath, prefix: [entry], env: codexProcessEnvironment(Boolean(process.versions.electron)) };
+    } catch { /* use a native executable */ }
   }
-  return { command: process.platform === 'win32' ? 'codex.exe' : 'codex', prefix: [] };
+  return { command: process.platform === 'win32' ? 'codex.exe' : 'codex', prefix: [], env: codexProcessEnvironment(false) };
 }
 
 export async function codexVersion(): Promise<string> {
   const invocation = await codexInvocation();
-  return (await requireSuccessful(invocation.command, [...invocation.prefix, '--version'])).stdout.trim();
+  return (await requireSuccessful(invocation.command, [...invocation.prefix, '--version'], { env: invocation.env })).stdout.trim();
 }
 
 function parseModelList(value: unknown): ModelItem[] {
@@ -43,10 +57,10 @@ function parseModelList(value: unknown): ModelItem[] {
   });
 }
 
-export async function listCodexModels(signal?: AbortSignal): Promise<ModelItem[]> {
+async function requestCodexModels(signal?: AbortSignal): Promise<ModelItem[]> {
   const invocation = await codexInvocation();
   return await new Promise<ModelItem[]>((resolve, reject) => {
-    const child = spawn(invocation.command, [...invocation.prefix, 'app-server', '--listen', 'stdio://'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, NO_COLOR: '1' } });
+    const child = spawn(invocation.command, [...invocation.prefix, 'app-server', '--listen', 'stdio://'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: invocation.env });
     const lines = readline.createInterface({ input: child.stdout });
     let settled = false;
     let stderr = '';
@@ -80,6 +94,18 @@ export async function listCodexModels(signal?: AbortSignal): Promise<ModelItem[]
   });
 }
 
+export async function listCodexModels(signal?: AbortSignal): Promise<ModelItem[]> {
+  if (!signal && modelCache && modelCache.expiresAt > Date.now()) return modelCache.models.map(model => ({ ...model }));
+  if (!signal && modelRequest) return await modelRequest;
+  const request = requestCodexModels(signal).then(models => {
+    if (!signal) modelCache = { expiresAt: Date.now() + MODEL_CACHE_TTL_MS, models };
+    return models;
+  });
+  if (signal) return await request;
+  modelRequest = request.finally(() => { modelRequest = undefined; });
+  return await modelRequest;
+}
+
 export async function runCodexStructured<T>(options: CodexRunOptions<T>): Promise<T> {
   const work = await mkdtemp(path.join(tmpdir(), 'autoedit-codex-'));
   const schemaPath = path.join(work, 'schema.json');
@@ -95,7 +121,7 @@ export async function runCodexStructured<T>(options: CodexRunOptions<T>): Promis
     args.push('-');
     let buffered = '';
     const result = await runProcess(invocation.command, args, {
-      cwd: work, input: options.prompt, signal: options.signal,
+      cwd: work, env: invocation.env, input: options.prompt, signal: options.signal,
       onOutput: chunk => {
         buffered += chunk;
         const lines = buffered.split(/\r?\n/); buffered = lines.pop() ?? '';

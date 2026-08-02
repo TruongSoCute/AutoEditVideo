@@ -29,6 +29,7 @@ React renderer -> typed preload IPC -> Electron main
 - Renderer uses `contextIsolation: true`, `nodeIntegration: false`, sandbox, and a strict CSP.
 - Raw paths remain in Electron main; preview media is exposed through an opaque custom-protocol token.
 - Codex runs in an empty work directory with a read-only sandbox and tool-capable features disabled.
+- On Windows, the npm Codex entry point runs through Electron's bundled Node mode instead of relying on the GUI process `PATH`. Model-catalog requests are single-flight and briefly cached so concurrent dependency and picker refreshes share one authenticated app-server session.
 - Prompts and raw model output never enter renderer progress logs.
 - Output never overwrites source media.
 

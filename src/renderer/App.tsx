@@ -25,13 +25,7 @@ export default function App() {
   const previewUrl = project?.proxyUrl ?? project?.previewUrl;
 
   useEffect(() => window.autoEdit.onProgress(setProgress), []);
-  useEffect(() => {
-    void refreshStatus();
-    void window.autoEdit.listModels().then(setModels).catch(reason => {
-      setModels([]);
-      window.autoEdit.log({ level: 'warn', scope: 'renderer', message: 'Model catalog unavailable', details: { message: reason instanceof Error ? reason.message : String(reason) } });
-    });
-  }, [project?.id]);
+  useEffect(() => { void refreshDependencies(); }, [project?.id]);
   useEffect(() => { setPreviewError(''); setPreviewReady(false); }, [previewUrl]);
 
   async function action<T>(task: () => Promise<T>, apply?: (value: T) => void) {
@@ -41,7 +35,15 @@ export default function App() {
     finally { setBusy(false); }
   }
 
-  async function refreshStatus() { try { setStatus(await window.autoEdit.systemStatus(project?.id)); } catch { setStatus(null); } }
+  async function refreshDependencies() {
+    const [nextStatus, nextModels] = await Promise.allSettled([window.autoEdit.systemStatus(project?.id), window.autoEdit.listModels()]);
+    setStatus(nextStatus.status === 'fulfilled' ? nextStatus.value : null);
+    if (nextModels.status === 'fulfilled') setModels(nextModels.value);
+    else {
+      setModels([]);
+      window.autoEdit.log({ level: 'warn', scope: 'renderer', message: 'Model catalog unavailable', details: { message: nextModels.reason instanceof Error ? nextModels.reason.message : String(nextModels.reason) } });
+    }
+  }
   const setMaybeProject = (value: PublicProject | null) => { if (value) setProject(value); };
   const totalDuration = useMemo(() => plan?.segments.reduce((sum, item) => sum + item.sourceEnd - item.sourceStart, 0) ?? 0, [plan]);
 
@@ -78,13 +80,16 @@ export default function App() {
     } });
   }
 
+  const codexConnected = models.length > 0 || status?.codex.authenticated === true;
+
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand"><span className="brand-mark">A</span><div><strong>AutoEdit</strong><small>STUDIO</small></div></div>
       <div className="project-title">{project ? project.name : 'A quiet workspace for sharp stories'}</div>
-      {project && <AgentPicker project={project} models={models} busy={busy} authenticated={status?.codex.authenticated === true}
+      {project && <AgentPicker project={project} models={models} busy={busy} authenticated={codexConnected} statusError={status?.codex.error}
         onModel={model => void action(() => window.autoEdit.updateModel(project.id, model, project.settings.reasoning), setProject)}
-        onReasoning={reasoning => void action(() => window.autoEdit.updateModel(project.id, project.settings.model, reasoning), setProject)} />}
+        onReasoning={reasoning => void action(() => window.autoEdit.updateModel(project.id, project.settings.model, reasoning), setProject)}
+        onRetry={() => void refreshDependencies()} />}
       <div className="top-actions"><button className="ghost" onClick={() => void action(window.autoEdit.openProject, setMaybeProject)}>Open</button><button className="primary" onClick={() => void action(window.autoEdit.createProject, setMaybeProject)}>＋ Import video</button></div>
     </header>
 
@@ -96,7 +101,8 @@ export default function App() {
         return <div className={`step ${state}`} key={step}><span>{state === 'complete' ? '✓' : index + 1}</span><div>{step}<small>{state}</small></div></div>;
       })}</nav>
       <div className="checks"><p className="eyebrow">SYSTEM CHECK</p>
-        <Check label="Codex CLI" ok={status?.codex.authenticated} />
+        <Check label="Codex CLI" ok={codexConnected} hint={status?.codex.error} />
+        {!codexConnected && <button className="codex-retry" disabled={busy} onClick={() => void refreshDependencies()}>Retry Codex</button>}
         <Check label="FFmpeg" ok={status?.ffmpeg.available} />
         <Check label="FFprobe" ok={status?.ffprobe.available} />
         <Check label="Be Vietnam Pro" ok={status?.fonts.beVietnamPro} />
@@ -147,9 +153,9 @@ export default function App() {
   </div>;
 }
 
-function AgentPicker({ project, models, busy, authenticated, onModel, onReasoning }: {
+function AgentPicker({ project, models, busy, authenticated, statusError, onModel, onReasoning, onRetry }: {
   project: PublicProject; models: ModelItem[]; busy: boolean; authenticated: boolean;
-  onModel: (model: string) => void; onReasoning: (reasoning: Reasoning) => void;
+  statusError?: string; onModel: (model: string) => void; onReasoning: (reasoning: Reasoning) => void; onRetry: () => void;
 }) {
   const selected = models.find(model => model.id === project.settings.model);
   const supported = reasoningOptions.filter(reasoning => !selected?.supportedReasoning?.length || selected.supportedReasoning.includes(reasoning));
@@ -165,10 +171,10 @@ function AgentPicker({ project, models, busy, authenticated, onModel, onReasonin
       <p>{selected?.description ?? 'Choose a model available to your signed-in Codex account.'}</p>
       <label>Reasoning effort</label>
       <div className="reasoning-grid">{supported.map(reasoning => <button type="button" disabled={busy} className={project.settings.reasoning === reasoning ? 'active' : ''} key={reasoning} onClick={() => onReasoning(reasoning)}>{reasoning}</button>)}</div>
-      <footer>Applies to the next editorial, subtitle, or Ask Agent proposal.</footer>
+      <footer title={statusError}><span>Applies to the next editorial, subtitle, or Ask Agent proposal.</span>{!authenticated && <button type="button" disabled={busy} onClick={onRetry}>Retry Codex</button>}</footer>
     </div>
   </details>;
 }
 
-function Check({ label, ok }: { label: string; ok?: boolean }) { return <div className="check"><span className={ok ? 'ok' : ''}>{ok ? '✓' : '·'}</span>{label}</div>; }
+function Check({ label, ok, hint }: { label: string; ok?: boolean; hint?: string }) { return <div className="check" title={hint}><span className={ok ? 'ok' : ''}>{ok ? '✓' : '·'}</span>{label}</div>; }
 function EmptyState({ onImport }: { onImport: () => void }) { return <div className="empty-state"><div className="reel-icon">◫</div><p className="eyebrow">AUTOEDIT STUDIO</p><h1>Find the story.<br /><em>Keep your voice.</em></h1><p>Turn one local headtalk into a reviewed, bilingual vertical edit. Your footage never goes to the agent.</p><button className="primary large" onClick={onImport}>Import a video</button><small>MOV · MP4 · M4V · MKV</small></div>; }
